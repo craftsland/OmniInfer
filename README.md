@@ -7,6 +7,8 @@
 
 # OmniInfer
 
+<p align="center"><strong>English</strong> | <a href="docs/README.zh-CN.md">简体中文</a></p>
+
 <p align="center">Easy, fast, and private LLM &amp; VLM inference for every device.</p>
 
 <p align="center">

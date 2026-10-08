@@ -6,6 +6,12 @@ from pathlib import Path
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 README_PATH = REPOSITORY_ROOT / "README.md"
+README_ZH_CN_PATH = REPOSITORY_ROOT / "docs" / "README.zh-CN.md"
+ARCHITECTURE_DIAGRAMS = {
+    README_PATH: "docs/assets/architecture-en.svg",
+    README_ZH_CN_PATH: "assets/architecture-zh-CN.svg",
+}
+ARCHITECTURE_DIAGRAM_MAX_BYTES = 3 * 1024 * 1024
 DEMO_ASSET_DIR = REPOSITORY_ROOT / "docs" / "assets" / "demo"
 DEMO_POSTER_MAX_BYTES = 400 * 1024
 TERMINAL_ANIMATION_MAX_BYTES = 3 * 1024 * 1024
@@ -14,6 +20,39 @@ DEMO_POSTER_TOTAL_MAX_BYTES = 2 * 1024 * 1024
 DEMO_ANIMATION_TOTAL_MAX_BYTES = 10 * 1024 * 1024
 RETIRED_DEMO_ATTACHMENT = "4ac5329e-8c54-4ea9-8a51-02306c0607e9"
 RETIRED_VLA_DEMO_ATTACHMENT = "83eb563d-60fc-42f6-9032-a9c7b7eedb8c"
+
+
+def find_local_machine_details(text: str) -> list[str]:
+    leaks = (
+        "/home/",
+        ":\\Users",
+        "zhangguanhuai",
+        "zzw@",
+        "time-crystal",
+        "yutong",
+    )
+    found = [leak for leak in leaks if leak in text]
+    found.extend(re.findall(r"\b\d{1,3}(?:\.\d{1,3}){3}\b", text))
+    return found
+
+
+def find_missing_local_links(text: str, base_dir: Path = REPOSITORY_ROOT) -> list[str]:
+    markdown_targets = re.findall(r"!?(?:\[[^\]]*\])\(([^)]+)\)", text)
+    html_targets = re.findall(r"(?:href|src|srcset)=\"([^\"]+)\"", text)
+    missing = []
+    for raw_target in markdown_targets + html_targets:
+        target = raw_target.strip().split(maxsplit=1)[0].strip("<>")
+        parsed = urllib.parse.urlsplit(target)
+        if parsed.scheme or parsed.netloc or target.startswith("#"):
+            continue
+        relative_path = urllib.parse.unquote(parsed.path)
+        if relative_path and not (base_dir / relative_path).exists():
+            missing.append(target)
+    return missing
+
+
+def level_two_headings(text: str) -> list[str]:
+    return re.findall(r"^## .+$", text, flags=re.MULTILINE)
 
 
 class RootReadmeTests(unittest.TestCase):
@@ -173,36 +212,73 @@ class RootReadmeTests(unittest.TestCase):
         self.assertLessEqual(total, DEMO_ANIMATION_TOTAL_MAX_BYTES)
 
     def test_readme_has_no_local_machine_details(self):
-        leaks = (
-            "/home/",
-            ":\\Users",
-            "zhangguanhuai",
-            "zzw@",
-            "time-crystal",
-            "yutong",
-        )
-        for leak in leaks:
-            with self.subTest(leak=leak):
-                self.assertNotIn(leak, self.readme)
-        self.assertEqual(
-            re.findall(r"\b\d{1,3}(?:\.\d{1,3}){3}\b", self.readme),
-            [],
-        )
+        self.assertEqual(find_local_machine_details(self.readme), [])
 
     def test_local_readme_links_resolve(self):
-        markdown_targets = re.findall(r"!?(?:\[[^\]]*\])\(([^)]+)\)", self.readme)
-        html_targets = re.findall(r"(?:href|src)=\"([^\"]+)\"", self.readme)
-        missing = []
-        for raw_target in markdown_targets + html_targets:
-            target = raw_target.strip().split(maxsplit=1)[0].strip("<>")
-            parsed = urllib.parse.urlsplit(target)
-            if parsed.scheme or parsed.netloc or target.startswith("#"):
-                continue
-            relative_path = urllib.parse.unquote(parsed.path)
-            if relative_path and not (REPOSITORY_ROOT / relative_path).exists():
-                missing.append(target)
-        self.assertEqual(missing, [])
+        self.assertEqual(find_missing_local_links(self.readme), [])
 
+
+class ChineseReadmeTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.readme = README_PATH.read_text(encoding="utf-8")
+        cls.readme_zh_cn = README_ZH_CN_PATH.read_text(encoding="utf-8")
+
+    def test_language_switchers_link_both_readmes(self):
+        self.assertIn('<a href="docs/README.zh-CN.md">简体中文</a>', self.readme)
+        self.assertIn('<a href="../README.md">English</a>', self.readme_zh_cn)
+
+    def test_sections_mirror_english_readme(self):
+        self.assertEqual(
+            len(level_two_headings(self.readme_zh_cn)),
+            len(level_two_headings(self.readme)),
+        )
+        for anchor in ('href="#快速开始"', 'href="#文档"'):
+            with self.subTest(anchor=anchor):
+                self.assertIn(anchor, self.readme_zh_cn)
+        self.assertIn("## 快速开始", self.readme_zh_cn)
+        self.assertIn("## 文档", self.readme_zh_cn)
+
+    def test_commands_match_english_readme(self):
+        for command in re.findall(r"<code>([^<]+)</code>", self.readme):
+            with self.subTest(command=command):
+                self.assertIn(f"<code>{command}</code>", self.readme_zh_cn)
+
+    def test_news_entries_mirror_english_readme(self):
+        for date in re.findall(r"^- \*\*(\d{4}-\d{2}-\d{2})\*\*", self.readme, re.MULTILINE):
+            with self.subTest(date=date):
+                self.assertIn(f"- **{date}** — ", self.readme_zh_cn)
+
+    def test_readme_has_no_local_machine_details(self):
+        self.assertEqual(find_local_machine_details(self.readme_zh_cn), [])
+
+    def test_local_readme_links_resolve(self):
+        self.assertEqual(
+            find_missing_local_links(self.readme_zh_cn, README_ZH_CN_PATH.parent), []
+        )
+
+    def test_chinese_readme_stays_out_of_repository_root(self):
+        self.assertFalse((REPOSITORY_ROOT / "README.zh-CN.md").exists())
+
+
+class ArchitectureDiagramTests(unittest.TestCase):
+    def test_each_readme_embeds_its_localized_diagram(self):
+        for readme_path, diagram in ARCHITECTURE_DIAGRAMS.items():
+            with self.subTest(readme=readme_path.name):
+                readme = readme_path.read_text(encoding="utf-8")
+                self.assertIn(f"]({diagram})", readme)
+                self.assertNotIn("architecture.drawio", readme)
+
+    def test_diagrams_are_self_contained_and_within_size_budget(self):
+        for diagram in ARCHITECTURE_DIAGRAMS.values():
+            path = REPOSITORY_ROOT / "docs" / "assets" / Path(diagram).name
+            with self.subTest(diagram=diagram):
+                self.assertTrue(path.is_file(), path)
+                self.assertLessEqual(path.stat().st_size, ARCHITECTURE_DIAGRAM_MAX_BYTES)
+                svg = path.read_text(encoding="utf-8")
+                self.assertTrue(svg.startswith("<svg "))
+                for marker in ("<script", "<foreignObject", 'href="http'):
+                    self.assertNotIn(marker, svg)
 
 if __name__ == "__main__":
     unittest.main()
