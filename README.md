@@ -139,7 +139,7 @@ Runtime availability depends on the device and accelerator. Use `omniinfer backe
 
 ## Architecture
 
-![OmniInfer architecture](docs/assets/architecture.drawio.svg)
+![OmniInfer architecture: entry points, Rust control plane, platform abstraction, inference engines, and supported models](docs/assets/architecture-en.svg)
 
 ## Contributing
 
