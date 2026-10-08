@@ -8,6 +8,7 @@ Thank you for taking the time to improve OmniInfer.
 - Work from a feature branch instead of committing directly to `main`.
 - Keep changes focused. Avoid bundling unrelated refactors with bug fixes or features.
 - Update tests and documentation when behavior, APIs, CLI output, build scripts, or platform support changes.
+- Keep `README.md` and `docs/README.zh-CN.md` in sync; the English README is the source of truth. Architecture diagrams live in `docs/assets/architecture-en.svg` and `docs/assets/architecture-zh-CN.svg` and should be replaced together.
 
 ## Development Setup
 

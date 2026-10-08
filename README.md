@@ -7,6 +7,8 @@
 
 # OmniInfer
 
+<p align="center"><strong>English</strong> | <a href="docs/README.zh-CN.md">简体中文</a></p>
+
 <p align="center">Easy, fast, and private LLM &amp; VLM inference for every device.</p>
 
 <p align="center">
@@ -139,7 +141,7 @@ Runtime availability depends on the device and accelerator. Use `omniinfer backe
 
 ## Architecture
 
-![OmniInfer architecture](docs/assets/architecture.drawio.svg)
+![OmniInfer architecture: entry points, Rust control plane, platform abstraction, inference engines, and supported models](docs/assets/architecture-en.svg)
 
 ## Contributing
 
