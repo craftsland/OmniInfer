@@ -189,7 +189,7 @@ Windows:
 
 Examples:
 
-- Linux: `llama.cpp-cpu`, `llama.cpp-rocm`, `llama.cpp-vulkan`, `stable-diffusion.cpp-vulkan`, `llama.cpp-cpu-s390x`, `llama.cpp-openvino`, `vllm-cuda`, `vla.cpp-cpu`, or `vla.cpp-cuda`
+- Linux: `llama.cpp-cpu`, `llama.cpp-rocm`, `llama.cpp-vulkan`, `stable-diffusion.cpp-vulkan`, `llama.cpp-cpu-s390x`, `llama.cpp-openvino`, `vllm-cuda`, `vla.cpp-cpu`, `vla.cpp-cuda`, or `ds4-cuda` on DGX Spark
 - macOS: `llama.cpp-metal`, `llama.cpp-cpu`, `turboquant-metal`, or `mlx-metal`
 - Windows: `llama.cpp-cpu`, `llama.cpp-cuda`, `llama.cpp-vulkan`, `stable-diffusion.cpp-vulkan`, `llama.cpp-cpu-arm64`, `llama.cpp-sycl`, `llama.cpp-hip`, or managed `vllm-wsl2-cuda` / `vllm-wsl2-rocm`
 

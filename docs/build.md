@@ -44,6 +44,7 @@ Additional framework notes:
 - `framework/stable-diffusion.cpp` is required for the Linux and Windows Vulkan diffusion backends
 - `vllm-linux-cuda` installs vLLM Python wheels into an OmniInfer-managed local venv by default, which matches vLLM's normal binary distribution path
 - `freetoken-linux-cuda` installs verified FreeToken release wheels into a versioned OmniInfer-managed environment; it does not add a source submodule
+- `ds4-linux-cuda` builds a SHA256-pinned Entrpi/ds4 source archive; it does not add a source submodule, so automated submodule updates cannot move it to an unvalidated release
 - Windows `vllm-wsl2-cuda` and `vllm-wsl2-rocm` install pinned official Linux wheels into OmniInfer-managed WSL2 venvs; upstream vLLM has no native Windows runtime
 
 Submodule behavior:
@@ -190,6 +191,7 @@ Current desktop runtime directories:
 - Linux x64 OpenVINO: `.local/runtime/linux/llama.cpp-linux-openvino`
 - Linux x64 vLLM CUDA: `.local/runtime/linux/vllm-linux-cuda`
 - Linux x64 FreeToken CUDA: `.local/runtime/linux/freetoken-linux-cuda`
+- Linux arm64 ds4 CUDA (DGX Spark): `.local/runtime/linux/ds4-linux-cuda`
 - Linux x64 vla.cpp CPU: `.local/runtime/linux/vla.cpp-linux`
 - Linux x64 vla.cpp CUDA: `.local/runtime/linux/vla.cpp-linux-cuda`
 - macOS Apple Silicon Metal: `.local/runtime/macos/llama.cpp-mac`
@@ -363,6 +365,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\platforms\windows\
 - `scripts/platforms/linux/build-llama-openvino.sh`
 - `scripts/platforms/linux/vllm-linux-cuda/build.sh`
 - `scripts/platforms/linux/freetoken-linux-cuda/build.sh`
+- `scripts/platforms/linux/ds4-linux-cuda/build.sh`
 - `scripts/platforms/linux/stable-diffusion.cpp-linux-vulkan/build.sh`
 - `scripts/platforms/linux/build-release.sh`
 
@@ -380,6 +383,7 @@ Linux backend script behavior:
 | `llama.cpp-linux-cuda` | Fails with a clear "no prebuilt configured" message because upstream `b10280` has no Linux CUDA archive | `--from-source` builds pinned `framework/llama.cpp` tag `b10665` (`ca3d5a3e`) with CUDA settings |
 | `vllm-linux-cuda` | Creates an OmniInfer-managed venv and installs vLLM wheels | Not a C++ source build path |
 | `freetoken-linux-cuda` | Installs pinned FreeToken v0.1.2 CUDA 13 wheels | Not a C++ source build path |
+| `ds4-linux-cuda` | Fails with a clear "no prebuilt configured" message because ds4 publishes no release binaries | `--from-source` builds Entrpi/ds4 v0.6.5 (`addc0c4`) with `make cuda-spark` |
 | `mnn-linux` | Creates an OmniInfer-managed venv and installs the official `MNN==3.5.0` wheel | `--from-source` builds PyMNN from `framework/mnn` |
 | `ik_llama.cpp-linux` | Fails with a clear "no prebuilt configured" message | `--from-source` builds `framework/ik_llama.cpp` CPU |
 | `ik_llama.cpp-linux-cuda` | Fails with a clear "no prebuilt configured" message | `--from-source` builds `framework/ik_llama.cpp` CUDA |
@@ -434,6 +438,18 @@ Linux backend script behavior:
 - Accepts local checkpoints and Hugging Face model IDs supported by FreeToken
 - Uses a log readiness marker because FreeToken's `/health` endpoint can respond before model loading is complete
 - Reserves local model bytes in host memory and FreeToken's configured GPU memory ratio; remote model IDs require an explicit `resource_budget_bytes` host reservation
+
+`ds4-linux-cuda`:
+
+- Target: NVIDIA DGX Spark only (Linux aarch64, GB10 compute capability 12.1, R580-or-newer driver, CUDA 13 toolkit)
+- Runs Entrpi/ds4 `ds4-server`, a DeepSeek V4 Flash engine with its own OpenAI- and Anthropic-compatible API
+- Builds the pinned v0.6.5 source archive (SHA256-verified) with `make cuda-spark`, then verifies that `ds4-server` contains only `sm_121a` SASS and reports the expected version; no `sudo` is required
+- Loads one antirez DeepSeek V4 GGUF file, for example the 80.76 GiB `DeepSeek-V4-Flash-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-chat-v2-imatrix.gguf`; llama.cpp GGUFs and multimodal projectors are not supported
+- Binds only to loopback because `ds4-server` has no authentication; speculative decoding, the daily update check, CORS and self-upgrade are disabled by OmniInfer
+- Uses the `ds4-server: listening` log line as readiness, which ds4 prints only after the weights are loaded and repacked; allow a longer `--startup-timeout` for cold loads
+- Budgets unified system memory: weights, about 8% in-process repack, about 5 KiB per context token, and ds4's 4 GiB admission floor. GB10 reports no free-memory figure through `nvidia-smi`, so CUDA device capacity is not consulted
+- Thinking requests are translated to ds4's top-level `thinking` field; `/omni/cache/clear` and tokenize endpoints are not available because ds4 manages its own KV banks
+- The TUI installs prebuilt runtimes only, so use `omniinfer build ds4-cuda --from-source` or the source installer on the Spark
 
 `mnn-linux`:
 
@@ -492,6 +508,14 @@ Linux x64 FreeToken CUDA:
 
 ```bash
 bash ./scripts/platforms/linux/freetoken-linux-cuda/build.sh --smoke-test
+```
+
+Linux arm64 ds4 CUDA on DGX Spark:
+
+```bash
+./omniinfer build ds4-cuda --from-source
+./omniinfer backend select ds4-cuda
+./omniinfer load -m /path/to/DeepSeek-V4-Flash-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-chat-v2-imatrix.gguf --ctx-size 16384
 ```
 
 Pin a specific vLLM wheel when reproducibility matters:

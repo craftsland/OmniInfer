@@ -28,6 +28,7 @@ of falling back to a different accelerator or engine.
 | Linux | mnn-linux | mnn-cpu |
 | Linux | vllm-linux-cuda | vllm-cuda |
 | Linux | freetoken-linux-cuda | freetoken-cuda |
+| Linux arm64 (DGX Spark) | ds4-linux-cuda | ds4-cuda |
 | Linux | vla.cpp-linux | vla.cpp-cpu |
 | Linux | vla.cpp-linux-cuda | vla.cpp-cuda |
 | Windows | llama.cpp-cpu | llama.cpp-cpu |
