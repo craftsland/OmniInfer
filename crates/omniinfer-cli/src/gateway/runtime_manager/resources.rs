@@ -46,6 +46,9 @@ pub(super) fn build_runtime_resource_budget(
             cuda_visible_devices,
         );
     }
+    if backend.family == "ds4" {
+        return build_ds4_resource_budget(weights, ctx_size, explicit_total, &domains);
+    }
     if backend.family == "stable-diffusion.cpp" {
         let weights = weights.ok_or_else(|| {
             anyhow::anyhow!("stable-diffusion.cpp model artifact size is unknown: {model}")
@@ -568,6 +571,69 @@ fn diffusion_memory_domain(value: &str) -> Result<MemoryDomain> {
     anyhow::bail!(
         "stable-diffusion.cpp resource budgeting cannot map backend device '{value}'; use cpu or vulkan<index>"
     )
+}
+
+/// ds4 keeps the GGUF plus its in-process aligned repack resident (about 87 GiB
+/// for the 80.76 GiB Flash Q2 file) and demand-maps KV pages per request bank,
+/// observed at 4.3-4.8 KiB per resident token. It also holds a 4 GiB free-memory
+/// floor before admitting work. Reserve one full-depth bank; extra concurrent
+/// banks are funded by ds4's own memory governor from what remains.
+const DS4_KV_BYTES_PER_TOKEN: u64 = 5 * 1024;
+const DS4_ADMISSION_FLOOR_BYTES: u64 = 4 * GIB;
+
+fn build_ds4_resource_budget(
+    weights: Option<u64>,
+    ctx_size: u32,
+    explicit_total: Option<u64>,
+    domains: &[MemoryDomain],
+) -> Result<ResourceBudget> {
+    let Some(weights) = weights else {
+        let total = explicit_total.ok_or_else(|| {
+            anyhow::anyhow!(
+                "ds4 model size is unknown; provide a non-zero resource_budget_bytes value"
+            )
+        })?;
+        return Ok(ResourceBudget::from_components(assign_component(
+            "client_provided_total",
+            total,
+            domains,
+            false,
+        )?)?);
+    };
+    let weights = weights.max(1);
+    let repack = checked_scaled(weights, 8, 100)?.max(384 * MIB);
+    let kv_cache = u64::from(ctx_size.max(1))
+        .checked_mul(DS4_KV_BYTES_PER_TOKEN)
+        .ok_or_else(|| anyhow::anyhow!("ds4 KV budget overflow"))?;
+    let mut components = Vec::new();
+    for (name, bytes) in [
+        ("weights", weights),
+        ("aligned_repack", repack),
+        ("kv_cache", kv_cache),
+        ("admission_floor", DS4_ADMISSION_FLOOR_BYTES),
+    ] {
+        components.extend(assign_component(name, bytes, domains, false)?);
+    }
+    let estimated = ResourceBudget::from_components(components)?;
+    let Some(explicit_total) = explicit_total else {
+        return Ok(estimated);
+    };
+    let estimated_minimum = estimated
+        .domains()
+        .values()
+        .try_fold(0_u64, |total, bytes| total.checked_add(*bytes))
+        .ok_or_else(|| anyhow::anyhow!("resource budget overflow"))?;
+    if explicit_total < estimated_minimum {
+        anyhow::bail!(
+            "resource_budget_bytes is below the estimated ds4 minimum of {estimated_minimum} bytes"
+        );
+    }
+    Ok(ResourceBudget::from_components(assign_component(
+        "client_provided_total",
+        explicit_total,
+        domains,
+        false,
+    )?)?)
 }
 
 fn build_freetoken_resource_budget(

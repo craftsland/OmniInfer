@@ -61,6 +61,20 @@ pub(super) fn resolve_model_for_backend(
             );
         }
     }
+    if backend.model_artifact == "gguf-file" {
+        let path = PathBuf::from(&path);
+        let is_gguf = path
+            .extension()
+            .and_then(|value| value.to_str())
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("gguf"));
+        if path.is_dir() || !is_gguf {
+            anyhow::bail!(
+                "{} requires a single .gguf model file: {}",
+                backend.id,
+                path.display()
+            );
+        }
+    }
     if backend.model_artifact == "file" && PathBuf::from(&path).is_dir() {
         return Ok(discover_llama_cpp_model_artifacts(&PathBuf::from(path))?);
     }
@@ -116,6 +130,7 @@ pub(super) fn launch_args_have_ctx_size(family: &str, args: &[String]) -> bool {
         match family {
             "vllm" => flag == "--max-model-len",
             "freetoken" => flag == "--max-seq-len-override",
+            "ds4" => matches!(flag, "-c" | "--ctx"),
             "llama.cpp" | "turboquant" => matches!(flag, "-c" | "--ctx-size"),
             _ => matches!(flag, "-c" | "--ctx-size" | "--max-model-len"),
         }

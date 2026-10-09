@@ -352,8 +352,10 @@ pub(super) fn model_supported_by_backend(
         .to_ascii_lowercase();
     match ext.as_str() {
         "gguf" => {
-            backend.model_artifact == "vla-artifact"
-                || matches!(backend.family.as_str(), "llama.cpp" | "turboquant")
+            matches!(
+                backend.model_artifact.as_str(),
+                "vla-artifact" | "gguf-file"
+            ) || matches!(backend.family.as_str(), "llama.cpp" | "turboquant")
         }
         "mnn" => backend.family == "mnn",
         "safetensors" => backend.model_artifact == "vla-artifact",

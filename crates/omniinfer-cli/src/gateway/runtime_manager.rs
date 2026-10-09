@@ -522,14 +522,19 @@ impl RustRuntimeManager {
                 selection.visible.join(","),
             ));
         }
-        let budget_cuda_devices = if backend.capabilities.iter().any(|value| value == "cuda") {
-            match cuda_selection.as_ref() {
-                Some(selection) => Some(selection.visible_devices.clone()),
-                None => Some(detect_cuda_device_ids()?.join(",")),
-            }
-        } else {
-            None
-        };
+        let shared_memory = backend
+            .capabilities
+            .iter()
+            .any(|value| value == "shared-memory");
+        let budget_cuda_devices =
+            if !shared_memory && backend.capabilities.iter().any(|value| value == "cuda") {
+                match cuda_selection.as_ref() {
+                    Some(selection) => Some(selection.visible_devices.clone()),
+                    None => Some(detect_cuda_device_ids()?.join(",")),
+                }
+            } else {
+                None
+            };
         let replicate_across_domains =
             cuda_selection.is_none() && budget_cuda_devices.is_some() && placement_policy.is_none();
         let resource_budget = build_runtime_resource_budget(

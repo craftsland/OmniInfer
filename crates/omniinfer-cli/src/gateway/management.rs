@@ -530,6 +530,9 @@ pub(super) async fn try_handle_rust_endpoint(
                 .and_then(Value::as_bool)
                 .unwrap_or(false);
             apply_proxy_model(&mut normalized_payload.payload, target.model.as_deref());
+            if target.protocol == ExternalServerProtocol::Ds4Server {
+                adapt_for_ds4_server(&mut normalized_payload.payload);
+            }
             let started_at = Instant::now();
             let history_context = StreamHistoryContext {
                 state: state.clone(),
@@ -601,21 +604,33 @@ pub(super) async fn try_handle_rust_endpoint(
             } else {
                 "tokenize"
             };
-            let target = state.runtime.lock().await.proxy_base_for_model(None);
+            let target = state.runtime.lock().await.proxy_target_for_model(None);
             let Some(target) = target else {
                 return Ok(None);
             };
+            if target.protocol == ExternalServerProtocol::Ds4Server {
+                return Ok(Some(backend_protocol_not_supported(&target, path)));
+            }
+            let Some(base_url) = target.base_url.as_deref() else {
+                return Ok(None);
+            };
             let response =
-                proxy_body_to_runtime(&state.client, &format!("{target}/{operation}"), body)
+                proxy_body_to_runtime(&state.client, &format!("{base_url}/{operation}"), body)
                     .await?;
             Ok(Some(response))
         }
         (&Method::POST, "/omni/cache/clear") => {
-            let target = state.runtime.lock().await.proxy_base_for_model(None);
+            let target = state.runtime.lock().await.proxy_target_for_model(None);
             let Some(target) = target else {
                 return Ok(None);
             };
-            let response = clear_runtime_cache(&state.client, &target).await?;
+            if target.protocol == ExternalServerProtocol::Ds4Server {
+                return Ok(Some(backend_protocol_not_supported(&target, path)));
+            }
+            let Some(base_url) = target.base_url.as_deref() else {
+                return Ok(None);
+            };
+            let response = clear_runtime_cache(&state.client, base_url).await?;
             Ok(Some(response))
         }
         (&Method::POST, "/v1/messages") => {
@@ -678,6 +693,9 @@ pub(super) async fn try_handle_rust_endpoint(
             };
             let response_model = response_model.unwrap_or_else(|| "omniinfer".to_string());
             apply_proxy_model(&mut normalized.payload, target.model.as_deref());
+            if target.protocol == ExternalServerProtocol::Ds4Server {
+                adapt_for_ds4_server(&mut normalized.payload);
+            }
             let response = proxy_anthropic_to_runtime(
                 &state.client,
                 &format!("{base_url}/v1/chat/completions"),
