@@ -193,6 +193,12 @@ pub(super) fn capabilities(backend: &Value) -> Vec<String> {
 
 pub(super) fn available_memory_for_backend(backend: &Value, system: &Value) -> Option<f64> {
     let caps = capabilities(backend);
+    if caps.iter().any(|cap| cap == "shared-memory") {
+        return system
+            .get("host")
+            .and_then(|host| host.get("available_ram_gib"))
+            .and_then(Value::as_f64);
+    }
     if caps.iter().any(|cap| cap == "cuda") {
         return system
             .get("cuda")

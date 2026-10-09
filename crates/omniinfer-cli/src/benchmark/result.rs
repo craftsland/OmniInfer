@@ -53,6 +53,10 @@ pub(super) fn extract_measurement(response: &Value, elapsed: Duration) -> Result
                 .map(|tps| prompt_tokens as f64 * 1000.0 / tps)
         })
         .or_else(|| {
+            positive_number(timings, &["prefill_tok_s"])
+                .map(|tps| prompt_tokens as f64 * 1000.0 / tps)
+        })
+        .or_else(|| {
             positive_number(metrics, &["observed_prefill_tps"])
                 .map(|tps| prompt_tokens as f64 * 1000.0 / tps)
         })
@@ -60,8 +64,11 @@ pub(super) fn extract_measurement(response: &Value, elapsed: Duration) -> Result
         .ok_or_else(|| anyhow::anyhow!("response has no prefill timing"))?;
     let decode_duration_ms = positive_number(timings, &["predicted_ms", "decode_ms"])
         .or_else(|| {
-            positive_number(timings, &["predicted_per_second", "decode_tps"])
-                .map(|tps| completion_tokens as f64 * 1000.0 / tps)
+            positive_number(
+                timings,
+                &["predicted_per_second", "decode_tps", "decode_tok_s"],
+            )
+            .map(|tps| completion_tokens as f64 * 1000.0 / tps)
         })
         .or_else(|| {
             positive_number(metrics, &["observed_decode_tps"])
@@ -69,7 +76,8 @@ pub(super) fn extract_measurement(response: &Value, elapsed: Duration) -> Result
         })
         .or_else(|| positive_number(metrics, &["decode_ms"]))
         .ok_or_else(|| anyhow::anyhow!("response has no decode timing"))?;
-    let ttft_ms = positive_number(metrics, &["ttft_ms"]);
+    let ttft_ms =
+        positive_number(metrics, &["ttft_ms"]).or_else(|| positive_number(timings, &["ttft_ms"]));
     // Recent llama.cpp excludes the first sampled token from decode timing.
     // Infer only the documented N or N-1 convention from the native timing pair.
     let scored_decode_tokens = match (

@@ -1856,3 +1856,115 @@ fn vulkan_unreserved_buffers_and_partial_full_offload_fail_closed() {
         );
     }
 }
+
+fn ds4_test_backend(root: &std::path::Path) -> backend_registry::BackendSpec {
+    backend_registry::BackendSpec {
+        id: "ds4-linux-cuda".to_string(),
+        label: "test".to_string(),
+        family: "ds4".to_string(),
+        runtime_dir: root.display().to_string(),
+        launcher_path: None,
+        models_dir: None,
+        catalog_url: None,
+        description: "test".to_string(),
+        capabilities: vec![
+            "cuda".to_string(),
+            "cuda13".to_string(),
+            "shared-memory".to_string(),
+        ],
+        default_args: Vec::new(),
+        runtime_mode: "external_server".to_string(),
+        model_artifact: "gguf-file".to_string(),
+        supports_mmproj: false,
+        supports_ctx_size: true,
+        python_modules: Vec::new(),
+        external_server_protocol: Some("ds4-server".to_string()),
+        log_file_name: "ds4-server.log".to_string(),
+    }
+}
+
+#[test]
+fn ds4_budget_is_unified_memory_and_needs_no_cuda_device() {
+    let root = std::env::temp_dir().join(format!(
+        "omniinfer-ds4-budget-{}-{:?}",
+        std::process::id(),
+        std::thread::current().id()
+    ));
+    fs::create_dir_all(&root).unwrap();
+    let model = root.join("ds4.gguf");
+    fs::File::create(&model).unwrap().set_len(10 * GIB).unwrap();
+    let backend = ds4_test_backend(&root);
+    // GB10 reports memory.free as [N/A]; the budget must not consult CUDA devices.
+    let budget = build_runtime_resource_budget(
+        &json!({}),
+        &backend,
+        model.to_str().unwrap(),
+        None,
+        16384,
+        &[],
+        None,
+        false,
+    )
+    .unwrap();
+    let domains = budget.domains();
+    assert_eq!(domains.len(), 1);
+    let unified = domains[&MemoryDomain::Unified("system".to_string())];
+    let repack = 10 * GIB * 8 / 100;
+    assert_eq!(
+        unified,
+        10 * GIB + repack + 5 * GIB + 14 * GIB + 16384 * 5 * 1024 + 4 * GIB
+    );
+
+    let error = build_runtime_resource_budget(
+        &json!({"resource_budget_bytes": GIB}),
+        &backend,
+        model.to_str().unwrap(),
+        None,
+        16384,
+        &[],
+        None,
+        false,
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("ds4 minimum"));
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn ds4_requires_a_single_gguf_file() {
+    let root = std::env::temp_dir().join(format!(
+        "omniinfer-ds4-artifact-{}-{:?}",
+        std::process::id(),
+        std::thread::current().id()
+    ));
+    fs::create_dir_all(&root).unwrap();
+    let gguf = root.join("ds4.gguf");
+    let other = root.join("ds4.safetensors");
+    fs::File::create(&gguf).unwrap();
+    fs::File::create(&other).unwrap();
+    let backend = ds4_test_backend(&root);
+    let resolved = resolve_model_for_backend(gguf.to_str().unwrap(), &backend).unwrap();
+    assert_eq!(resolved.model_path, gguf.display().to_string());
+    assert_eq!(resolved.mmproj_path, None);
+    for rejected in [&root, &other] {
+        let error = resolve_model_for_backend(rejected.to_str().unwrap(), &backend).unwrap_err();
+        assert!(
+            error.to_string().contains("single .gguf model file"),
+            "{error}"
+        );
+    }
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn detects_ds4_context_args() {
+    assert!(launch_args_have_ctx_size(
+        "ds4",
+        &["--ctx".to_string(), "4096".to_string()]
+    ));
+    assert!(launch_args_have_ctx_size("ds4", &["-c=4096".to_string()]));
+    assert!(!launch_args_have_ctx_size(
+        "ds4",
+        &["--max-model-len".to_string(), "4096".to_string()]
+    ));
+}

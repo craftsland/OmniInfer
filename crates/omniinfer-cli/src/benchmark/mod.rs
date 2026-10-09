@@ -420,6 +420,20 @@ mod tests {
         let value = extract_measurement(&upstream_rates, Duration::from_millis(650)).unwrap();
         assert_eq!(value.prefill_tps, 400.0);
         assert_eq!(value.decode_tps, 40.0);
+
+        let ds4 = json!({
+            "usage": {"prompt_tokens": 100, "completion_tokens": 50},
+            "timings": {
+                "ttft_ms": 250.0,
+                "prefill_tokens": 100,
+                "prefill_tok_s": 500.0,
+                "decode_tok_s": 25.0
+            }
+        });
+        let value = extract_measurement(&ds4, Duration::from_millis(2300)).unwrap();
+        assert_eq!(value.prefill_tps, 500.0);
+        assert_eq!(value.decode_tps, 25.0);
+        assert_eq!(value.ttft_ms, Some(250.0));
     }
 
     #[test]

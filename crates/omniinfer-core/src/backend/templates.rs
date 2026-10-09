@@ -248,6 +248,35 @@ const LINUX_TEMPLATES: &[BackendTemplate] = &[
         )
     },
     BackendTemplate {
+        model_artifact: "gguf-file",
+        supports_mmproj: false,
+        external_server_protocol: Some("ds4-server"),
+        log_file_name: "ds4-server.log",
+        ..template(
+            "ds4-linux-cuda",
+            "ds4 Linux CUDA (DGX Spark)",
+            "ds4",
+            "ds4-linux-cuda",
+            Some("ds4-server"),
+            "Entrpi/ds4 DeepSeek V4 Flash server managed by OmniInfer on DGX Spark GB10",
+            &[
+                "chat",
+                "stream",
+                "gpu",
+                "cuda",
+                "cuda13",
+                "sm121",
+                "shared-memory",
+                "linux",
+                "arm64",
+                "openai-compatible",
+                "anthropic-compatible",
+                "moe",
+            ],
+            "OMNIINFER_DS4_LINUX_CUDA",
+        )
+    },
+    BackendTemplate {
         model_artifact: "vla-artifact",
         supports_ctx_size: false,
         external_server_protocol: Some("vla.cpp-zmq-server"),

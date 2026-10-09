@@ -28,7 +28,10 @@ use omniinfer_core::gateway_auth::{
 };
 use omniinfer_core::model_catalog;
 use omniinfer_core::public_models;
-use omniinfer_core::request_normalization::normalize_chat_request_with_defaults;
+use omniinfer_core::request_normalization::{
+    adapt_for_ds4_server, normalize_chat_request_with_defaults,
+};
+use omniinfer_core::runtime_plan::ExternalServerProtocol;
 use omniinfer_core::{local_state, paths};
 use serde_json::{Value, json};
 use tokio::net::TcpListener;

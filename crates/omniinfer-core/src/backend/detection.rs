@@ -13,6 +13,7 @@ pub(super) fn gpu_backend_ids(host: HostInfo) -> &'static [&'static str] {
             "ik_llama.cpp-linux-cuda",
             "vllm-linux-cuda",
             "freetoken-linux-cuda",
+            "ds4-linux-cuda",
             "vla.cpp-linux-cuda",
         ],
         HostSystem::Windows => &[
@@ -63,11 +64,14 @@ pub(super) fn is_hardware_compatible(host: HostInfo, spec: &BackendSpec) -> bool
         return true;
     }
     if caps.contains(&"cuda") {
-        return if caps.contains(&"cuda13") {
+        let driver_ready = if caps.contains(&"cuda13") {
             cuda13_driver_detected()
         } else {
             cuda_detected()
         };
+        // ds4's cuda-spark build emits sm_121a SASS only; other GPUs cannot run it.
+        return driver_ready
+            && (!caps.contains(&"sm121") || cuda_compute_capability_detected("12.1"));
     }
     if caps.contains(&"rocm") || caps.contains(&"hip") {
         return rocm_detected(host);
@@ -112,6 +116,22 @@ fn cuda13_driver_detected() -> bool {
                     .any(|branch| branch >= 580)
         })
         .unwrap_or(false)
+}
+
+fn cuda_compute_capability_detected(wanted: &str) -> bool {
+    std::process::Command::new("nvidia-smi")
+        .args(["--query-gpu=compute_cap", "--format=csv,noheader,nounits"])
+        .output()
+        .map(|output| {
+            output.status.success() && output_reports_compute_capability(&output.stdout, wanted)
+        })
+        .unwrap_or(false)
+}
+
+pub(super) fn output_reports_compute_capability(output: &[u8], wanted: &str) -> bool {
+    String::from_utf8_lossy(output)
+        .lines()
+        .any(|line| line.trim() == wanted)
 }
 
 pub(super) fn parse_nvidia_driver_branch(value: &str) -> Option<u32> {

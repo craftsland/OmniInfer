@@ -27,6 +27,7 @@ pub enum ExternalServerProtocol {
     VlaCppZmqServer,
     StableDiffusionCppServer,
     FreeTokenOpenAiServer,
+    Ds4Server,
     VllmOpenAiServer,
     VllmWsl2OpenAiServer,
 }
@@ -38,6 +39,7 @@ impl ExternalServerProtocol {
             "vla.cpp-zmq-server" => Some(Self::VlaCppZmqServer),
             "stable-diffusion.cpp-server" => Some(Self::StableDiffusionCppServer),
             "freetoken-openai-server" => Some(Self::FreeTokenOpenAiServer),
+            "ds4-server" => Some(Self::Ds4Server),
             "vllm-openai-server" => Some(Self::VllmOpenAiServer),
             "vllm-wsl2-openai-server" => Some(Self::VllmWsl2OpenAiServer),
             _ => None,
@@ -50,6 +52,7 @@ impl ExternalServerProtocol {
             Self::VlaCppZmqServer => "vla.cpp-zmq-server",
             Self::StableDiffusionCppServer => "stable-diffusion.cpp-server",
             Self::FreeTokenOpenAiServer => "freetoken-openai-server",
+            Self::Ds4Server => "ds4-server",
             Self::VllmOpenAiServer => "vllm-openai-server",
             Self::VllmWsl2OpenAiServer => "vllm-wsl2-openai-server",
         }
@@ -112,6 +115,8 @@ pub enum RuntimePlanError {
     NonLoopbackVlaBind(String),
     #[error("stable-diffusion.cpp runtime must bind to a loopback host, got: {0}")]
     NonLoopbackDiffusionBind(String),
+    #[error("ds4-server has no authentication and must bind to a loopback host, got: {0}")]
+    NonLoopbackDs4Bind(String),
     #[error("MiniMax H3 requires the stable-diffusion.cpp launch arg {0}")]
     MissingH3Component(&'static str),
     #[error("stable-diffusion.cpp component not found for {flag}: {path}")]
@@ -190,6 +195,13 @@ pub fn build_external_runtime_plan(
             build_stable_diffusion_cpp_plan(&launcher_path, request, server_args, log_file_name)
         }
         ExternalServerProtocol::FreeTokenOpenAiServer => build_freetoken_plan(
+            &launcher_path,
+            request,
+            server_args,
+            effective_ctx_size,
+            log_file_name,
+        ),
+        ExternalServerProtocol::Ds4Server => build_ds4_plan(
             &launcher_path,
             request,
             server_args,
@@ -336,6 +348,78 @@ fn build_freetoken_plan(
         readiness_probe: RuntimeReadinessProbe::TcpConnectAndLog {
             marker: format!(
                 "API server is ready to serve on {}:{}",
+                request.host, request.port
+            ),
+        },
+    })
+}
+
+/// Flags OmniInfer owns for ds4-server: model and bind are always managed, the
+/// first-party MTP/DSpark drafters are not provisioned, and the daily update
+/// check is disabled so a managed runtime never reaches the network.
+const DS4_MANAGED_FLAGS: &[&str] = &[
+    "--model",
+    "-m",
+    "--host",
+    "--port",
+    "--chdir",
+    "--preset",
+    "--mtp",
+    "--dspark",
+    "--check-update",
+    "--upgrade",
+    "--cors",
+];
+
+fn build_ds4_plan(
+    launcher_path: &Path,
+    request: &ExternalRuntimeRequest,
+    mut server_args: Vec<String>,
+    effective_ctx_size: Option<u32>,
+    log_file_name: String,
+) -> Result<ExternalRuntimePlan, RuntimePlanError> {
+    if !is_loopback_host(&request.host) {
+        return Err(RuntimePlanError::NonLoopbackDs4Bind(request.host.clone()));
+    }
+    for token in &server_args {
+        let flag = token.split_once('=').map(|(flag, _)| flag).unwrap_or(token);
+        if DS4_MANAGED_FLAGS.contains(&flag) {
+            return Err(RuntimePlanError::ReservedLaunchArg(flag.to_string()));
+        }
+    }
+    let cwd = launcher_path
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| PathBuf::from("."));
+    let mut command = vec![
+        launcher_path.display().to_string(),
+        "--cuda".to_string(),
+        "--model".to_string(),
+        request.model_path.clone(),
+        "--host".to_string(),
+        request.host.clone(),
+        "--port".to_string(),
+        request.port.to_string(),
+        "--no-spec".to_string(),
+        "--no-update-check".to_string(),
+    ];
+    command.append(&mut server_args);
+    Ok(ExternalRuntimePlan {
+        command,
+        stop_command: None,
+        cwd,
+        port: request.port,
+        ctx_size: effective_ctx_size,
+        log_file_name,
+        // ds4-server substitutes its own model id when `model` is omitted.
+        proxy_model_ref: None,
+        protocol: ExternalServerProtocol::Ds4Server,
+        client_endpoint: ExternalServerProtocol::Ds4Server
+            .client_endpoint(&request.host, request.port),
+        // Printed only after ds4_engine_open has loaded and packed the weights.
+        readiness_probe: RuntimeReadinessProbe::TcpConnectAndLog {
+            marker: format!(
+                "ds4-server: listening on http://{}:{}",
                 request.host, request.port
             ),
         },
@@ -695,6 +779,7 @@ fn extract_server_arg_value(args: &[String], flags: &[&str]) -> Option<String> {
 fn ctx_size_flags(protocol: &str) -> [&'static str; 2] {
     match protocol {
         "freetoken-openai-server" => ["--max-seq-len-override", ""],
+        "ds4-server" => ["-c", "--ctx"],
         "vllm-openai-server" | "vllm-wsl2-openai-server" => ["--max-model-len", ""],
         "vla.cpp-zmq-server" | "stable-diffusion.cpp-server" => ["", ""],
         _ => ["-c", "--ctx-size"],
