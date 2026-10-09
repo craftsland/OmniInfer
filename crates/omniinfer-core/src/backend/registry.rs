@@ -8,7 +8,10 @@ use super::detection::{
     embedded_module_exists, is_architecture_compatible, is_hardware_compatible,
 };
 #[cfg(test)]
-use super::detection::{gpu_backend_ids, output_mentions_amd_gpu, parse_nvidia_driver_branch};
+use super::detection::{
+    gpu_backend_ids, output_mentions_amd_gpu, output_reports_compute_capability,
+    parse_nvidia_driver_branch,
+};
 use super::templates::backend_templates;
 use crate::{config, local_state, paths};
 
@@ -299,6 +302,8 @@ pub fn backend_priority(backend_id: &str) -> i32 {
         "vla.cpp-linux" => 2,
         "vllm-linux-cuda" => 2,
         "freetoken-linux-cuda" => 3,
+        // ds4 loads only antirez DeepSeek V4 GGUFs; never the generic default.
+        "ds4-linux-cuda" => 4,
         "vllm-wsl2-cuda" => 2,
         "vllm-wsl2-rocm" => 2,
         "llama.cpp-cpu" => 1,

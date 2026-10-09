@@ -530,3 +530,103 @@ fn rejects_reserved_managed_args() {
         RuntimePlanError::ReservedLaunchArg("--host".to_string())
     );
 }
+
+fn ds4_backend() -> serde_json::Value {
+    json!({
+        "id": "ds4-linux-cuda",
+        "launcher_path": "/runtime/ds4-linux-cuda/bin/ds4-server",
+        "runtime_dir": "/runtime/ds4-linux-cuda",
+        "external_server_protocol": "ds4-server",
+        "log_file_name": "ds4-server.log"
+    })
+}
+
+fn ds4_request(host: &str, launch_args: Option<Vec<String>>) -> ExternalRuntimeRequest {
+    ExternalRuntimeRequest {
+        backend: ds4_backend(),
+        model_path: "/models/DeepSeek-V4-Flash-Q2.gguf".to_string(),
+        mmproj_path: None,
+        host: host.to_string(),
+        port: 19210,
+        ctx_size: Some(16384),
+        launch_args,
+    }
+}
+
+#[test]
+fn ds4_uses_managed_server_shape_and_post_load_ready_marker() {
+    let plan = build_external_runtime_plan(&ds4_request("127.0.0.1", None)).unwrap();
+    assert_eq!(plan.protocol, ExternalServerProtocol::Ds4Server);
+    assert!(plan.protocol.is_openai_compatible());
+    assert!(plan.protocol.supports_chat());
+    assert_eq!(plan.ctx_size, Some(16384));
+    assert_eq!(plan.proxy_model_ref, None);
+    assert_eq!(plan.client_endpoint, "http://127.0.0.1:19210");
+    assert_eq!(plan.cwd, PathBuf::from("/runtime/ds4-linux-cuda/bin"));
+    assert_eq!(
+        plan.readiness_probe,
+        RuntimeReadinessProbe::TcpConnectAndLog {
+            marker: "ds4-server: listening on http://127.0.0.1:19210".to_string(),
+        }
+    );
+    assert_eq!(
+        plan.command,
+        vec![
+            "/runtime/ds4-linux-cuda/bin/ds4-server",
+            "--cuda",
+            "--model",
+            "/models/DeepSeek-V4-Flash-Q2.gguf",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            "19210",
+            "--no-spec",
+            "--no-update-check",
+            "-c",
+            "16384",
+        ]
+    );
+}
+
+#[test]
+fn ds4_ctx_override_replaces_native_ctx_flag() {
+    let plan = build_external_runtime_plan(&ds4_request(
+        "127.0.0.1",
+        Some(vec!["--ctx".to_string(), "4096".to_string()]),
+    ))
+    .unwrap();
+    assert_eq!(plan.ctx_size, Some(16384));
+    assert_eq!(&plan.command[plan.command.len() - 2..], ["-c", "16384"]);
+    assert!(!plan.command.iter().any(|arg| arg == "--ctx"));
+}
+
+#[test]
+fn ds4_rejects_unauthenticated_non_loopback_bind() {
+    for host in ["0.0.0.0", "192.0.2.10", "::"] {
+        let error = build_external_runtime_plan(&ds4_request(host, None)).unwrap_err();
+        assert_eq!(
+            error,
+            RuntimePlanError::NonLoopbackDs4Bind(host.to_string())
+        );
+    }
+}
+
+#[test]
+fn ds4_rejects_managed_and_network_launch_args() {
+    for flag in [
+        "--chdir",
+        "--mtp",
+        "--dspark",
+        "--preset",
+        "--cors",
+        "--upgrade",
+        "--check-update",
+    ] {
+        let error = build_external_runtime_plan(&ds4_request(
+            "127.0.0.1",
+            Some(vec![flag.to_string(), "value".to_string()]),
+        ))
+        .unwrap_err();
+        assert_eq!(error, RuntimePlanError::ReservedLaunchArg(flag.to_string()));
+    }
+}

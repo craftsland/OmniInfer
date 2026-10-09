@@ -20,6 +20,7 @@ pub fn selector(id: &str) -> &str {
         "mnn-linux" => "mnn-cpu",
         "vllm-linux-cuda" => "vllm-cuda",
         "freetoken-linux-cuda" => "freetoken-cuda",
+        "ds4-linux-cuda" => "ds4-cuda",
         "vla.cpp-linux" => "vla.cpp-cpu",
         "vla.cpp-linux-cuda" => "vla.cpp-cuda",
         "turboquant-mac" => "turboquant-metal",

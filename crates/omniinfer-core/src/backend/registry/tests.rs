@@ -417,6 +417,7 @@ fn public_selectors_resolve_without_changing_runtime_identity() {
             "llama.cpp-linux-s390x",
         ),
         (HostSystem::Ios, "arm64", "llama.cpp-metal", "llama.cpp-ios"),
+        (HostSystem::Linux, "aarch64", "ds4-cuda", "ds4-linux-cuda"),
     ] {
         let registry =
             BackendRegistry::build(HostInfo { system, machine }, "runtime", &Value::Null);
@@ -511,4 +512,81 @@ fn every_host_template_selector_round_trips_without_identity_or_path_changes() {
             }
         }
     }
+}
+
+#[test]
+fn ds4_is_a_dgx_spark_only_unified_memory_gguf_backend() {
+    let registry = BackendRegistry::build(
+        HostInfo {
+            system: HostSystem::Linux,
+            machine: "aarch64",
+        },
+        "runtime",
+        &Value::Null,
+    );
+    let backend = registry
+        .get("ds4-linux-cuda")
+        .expect("ds4 backend on Linux arm64");
+    assert_eq!(backend.family, "ds4");
+    assert_eq!(backend.model_artifact, "gguf-file");
+    assert!(!backend.supports_mmproj);
+    assert!(backend.supports_ctx_size);
+    assert_eq!(
+        backend.external_server_protocol.as_deref(),
+        Some("ds4-server")
+    );
+    assert!(
+        backend
+            .launcher_path
+            .as_deref()
+            .is_some_and(|path| path.ends_with("ds4-server"))
+    );
+    for capability in ["cuda", "cuda13", "sm121", "shared-memory", "arm64", "linux"] {
+        assert!(
+            backend.capabilities.iter().any(|value| value == capability),
+            "missing capability {capability}"
+        );
+    }
+    assert!(!backend.capabilities.iter().any(|value| value == "x64"));
+    assert!(backend_priority("ds4-linux-cuda") > backend_priority("llama.cpp-linux-cuda"));
+    assert!(
+        gpu_backend_ids(HostInfo {
+            system: HostSystem::Linux,
+            machine: "aarch64",
+        })
+        .contains(&"ds4-linux-cuda")
+    );
+}
+
+#[test]
+fn ds4_is_architecture_incompatible_on_x86_64() {
+    let registry = BackendRegistry::build(
+        HostInfo {
+            system: HostSystem::Linux,
+            machine: "x86_64",
+        },
+        "runtime",
+        &Value::Null,
+    );
+    // Exact runtime IDs report the architecture mismatch; aliases of
+    // incompatible backends are not offered on this host at all.
+    assert_eq!(
+        registry.resolve("ds4-linux-cuda").unwrap_err(),
+        crate::backend::names::ResolveError::Architecture("ds4-linux-cuda".to_string())
+    );
+    match registry.resolve("ds4-cuda").unwrap_err() {
+        crate::backend::names::ResolveError::Unknown { available, .. } => {
+            assert!(!available.split(", ").any(|name| name == "ds4-cuda"));
+        }
+        other => panic!("unexpected resolve error: {other:?}"),
+    }
+}
+
+#[test]
+fn compute_capability_probe_matches_exact_gb10_value() {
+    assert!(output_reports_compute_capability(b"12.1\n", "12.1"));
+    assert!(output_reports_compute_capability(b"8.9\n 12.1 \n", "12.1"));
+    assert!(!output_reports_compute_capability(b"12.0\n", "12.1"));
+    assert!(!output_reports_compute_capability(b"[N/A]\n", "12.1"));
+    assert!(!output_reports_compute_capability(b"", "12.1"));
 }

@@ -86,6 +86,34 @@ pub fn normalize_chat_request_with_defaults(
     })
 }
 
+/// ds4-server reads thinking only from top-level request fields and skips
+/// `chat_template_kwargs`, so a normalized request would otherwise silently run
+/// with ds4's own default. Move the resolved switch to `thinking.type` and drop
+/// llama.cpp-specific fields it does not use.
+pub fn adapt_for_ds4_server(payload: &mut Value) {
+    let Some(map) = payload.as_object_mut() else {
+        return;
+    };
+    let enabled = map
+        .get("chat_template_kwargs")
+        .and_then(|kwargs| kwargs.get("enable_thinking"))
+        .and_then(Value::as_bool);
+    if let Some(Value::Object(kwargs)) = map.get_mut("chat_template_kwargs") {
+        kwargs.remove("enable_thinking");
+        if kwargs.is_empty() {
+            map.remove("chat_template_kwargs");
+        }
+    }
+    map.remove("reasoning_format");
+    map.remove("thinking_budget");
+    if let Some(enabled) = enabled {
+        map.insert(
+            "thinking".to_string(),
+            json!({"type": if enabled { "enabled" } else { "disabled" }}),
+        );
+    }
+}
+
 pub fn parse_boolish(value: &Value) -> Result<bool, RequestNormalizationError> {
     match value {
         Value::Bool(value) => Ok(*value),
@@ -304,6 +332,28 @@ mod tests {
         );
         assert_eq!(request.payload["reasoning_format"], "none");
         assert!(request.payload.get("think").is_none());
+    }
+
+    #[test]
+    fn ds4_adapter_moves_thinking_to_top_level_field() {
+        let mut request = normalize_chat_request(json!({"think": false}), true)
+            .expect("normalize")
+            .payload;
+        adapt_for_ds4_server(&mut request);
+        assert_eq!(request["thinking"], json!({"type": "disabled"}));
+        assert!(request.get("chat_template_kwargs").is_none());
+        assert!(request.get("reasoning_format").is_none());
+
+        let mut request = normalize_chat_request(
+            json!({"chat_template_kwargs": {"other": 1}, "thinking_budget": 512}),
+            true,
+        )
+        .expect("normalize")
+        .payload;
+        adapt_for_ds4_server(&mut request);
+        assert_eq!(request["thinking"], json!({"type": "enabled"}));
+        assert_eq!(request["chat_template_kwargs"], json!({"other": 1}));
+        assert!(request.get("thinking_budget").is_none());
     }
 
     #[test]
