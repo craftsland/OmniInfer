@@ -447,7 +447,7 @@ Linux backend script behavior:
 - Loads one antirez DeepSeek V4 GGUF file, for example the 80.76 GiB `DeepSeek-V4-Flash-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-chat-v2-imatrix.gguf`; llama.cpp GGUFs and multimodal projectors are not supported
 - Binds only to loopback because `ds4-server` has no authentication; speculative decoding, the daily update check, CORS and self-upgrade are disabled by OmniInfer
 - Uses the `ds4-server: listening` log line as readiness, which ds4 prints only after the weights are loaded and repacked; allow a longer `--startup-timeout` for cold loads
-- Budgets unified system memory: weights, about 8% in-process repack, about 5 KiB per context token, and ds4's 4 GiB admission floor. GB10 reports no free-memory figure through `nvidia-smi`, so CUDA device capacity is not consulted
+- Budgets unified system memory from measured v0.6.5 usage: weights, about 8% in-process repack, 5 GiB session tensors, a 14 GiB continuous-batching bank pool, about 5 KiB per context token, and ds4's 4 GiB admission floor (about 110 GiB for Flash Q2 at 16K context; ds4 measured 105.2 GiB live). GB10 reports no free-memory figure through `nvidia-smi`, so CUDA device capacity is not consulted, and ds4 is effectively exclusive on a 128 GB Spark
 - Thinking requests are translated to ds4's top-level `thinking` field; `/omni/cache/clear` and tokenize endpoints are not available because ds4 manages its own KV banks
 - The TUI installs prebuilt runtimes only, so use `omniinfer build ds4-cuda --from-source` or the source installer on the Spark
 

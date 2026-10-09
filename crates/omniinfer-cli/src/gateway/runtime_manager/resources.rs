@@ -573,12 +573,16 @@ fn diffusion_memory_domain(value: &str) -> Result<MemoryDomain> {
     )
 }
 
-/// ds4 keeps the GGUF plus its in-process aligned repack resident (about 87 GiB
-/// for the 80.76 GiB Flash Q2 file) and demand-maps KV pages per request bank,
-/// observed at 4.3-4.8 KiB per resident token. It also holds a 4 GiB free-memory
-/// floor before admitting work. Reserve one full-depth bank; extra concurrent
-/// banks are funded by ds4's own memory governor from what remains.
+/// ds4 keeps the GGUF plus its in-process aligned repack resident (86.92 GiB of
+/// device memory for the 80.76 GiB Flash Q2 file on GB10), session tensors and
+/// scratch (about 4.3 GiB), and a continuous-batching bank pool that it sizes
+/// from free memory at boot (13.4 GiB at 16K context on an idle 128 GB Spark).
+/// It also keeps a 4 GiB free-memory floor and demand-maps deeper KV pages at
+/// 4.3-4.8 KiB per resident token. Measured with v0.6.5: 105.2 GiB live at 16K
+/// context and 106.4 GiB at 64K.
 const DS4_KV_BYTES_PER_TOKEN: u64 = 5 * 1024;
+const DS4_RUNTIME_SESSION_BYTES: u64 = 5 * GIB;
+const DS4_BATCH_BANK_POOL_BYTES: u64 = 14 * GIB;
 const DS4_ADMISSION_FLOOR_BYTES: u64 = 4 * GIB;
 
 fn build_ds4_resource_budget(
@@ -609,6 +613,8 @@ fn build_ds4_resource_budget(
     for (name, bytes) in [
         ("weights", weights),
         ("aligned_repack", repack),
+        ("runtime_session", DS4_RUNTIME_SESSION_BYTES),
+        ("batch_bank_pool", DS4_BATCH_BANK_POOL_BYTES),
         ("kv_cache", kv_cache),
         ("admission_floor", DS4_ADMISSION_FLOOR_BYTES),
     ] {

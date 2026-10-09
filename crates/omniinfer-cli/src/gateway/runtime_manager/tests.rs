@@ -1910,7 +1910,10 @@ fn ds4_budget_is_unified_memory_and_needs_no_cuda_device() {
     assert_eq!(domains.len(), 1);
     let unified = domains[&MemoryDomain::Unified("system".to_string())];
     let repack = 10 * GIB * 8 / 100;
-    assert_eq!(unified, 10 * GIB + repack + 16384 * 5 * 1024 + 4 * GIB);
+    assert_eq!(
+        unified,
+        10 * GIB + repack + 5 * GIB + 14 * GIB + 16384 * 5 * 1024 + 4 * GIB
+    );
 
     let error = build_runtime_resource_budget(
         &json!({"resource_budget_bytes": GIB}),
