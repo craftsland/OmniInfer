@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 # Builds the pinned Entrpi/ds4 DeepSeek V4 Flash server for NVIDIA DGX Spark (GB10).
-# ds4 publishes no release binaries, so this always builds the pinned source
-# archive with `make cuda-spark` and installs it into OmniInfer's runtime tree.
+# ds4 publishes no release binaries, so this always builds from source with
+# `make cuda-spark` and installs the result into OmniInfer's runtime tree.
+# Source: the framework/ds4 submodule at the pinned commit, or, when that cannot
+# be used (no git checkout, or GitHub git transport blocked), the SHA256-pinned
+# source archive of the same commit.
 
 set -euo pipefail
 
@@ -11,6 +14,7 @@ DS4_COMMIT="addc0c4bd6c664f8eed556df5c41f17990dcfcb6"
 DS4_ARCHIVE_SHA256="17d1afb8e845333dfb91bd2397a23726fa385b47882817ee39aa27b6fbe0345a"
 DS4_ARCHIVE_URL="https://codeload.github.com/${DS4_REPO}/tar.gz/${DS4_COMMIT}"
 DS4_REQUIRED_SM="12.1"
+SUBMODULE_FETCH_TIMEOUT="${OMNIINFER_DS4_SUBMODULE_TIMEOUT:-180}"
 
 SCRIPT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_ROOT}/../../../.." && pwd)"
@@ -19,11 +23,13 @@ ACTIVE_ROOT="${RUNTIME_ROOT}/ds4-linux-cuda"
 VERSIONS_ROOT="${RUNTIME_ROOT}/.ds4-linux-cuda-versions"
 CACHE_ROOT="${REPO_ROOT}/.local/cache/ds4"
 LOG_ROOT="${REPO_ROOT}/tmp/test_results/install/ds4-linux-cuda"
+DS4_SUBMODULE="${REPO_ROOT}/framework/ds4"
 CUDA_HOME="${CUDA_HOME:-/usr/local/cuda}"
 JOBS="${OMNIINFER_DS4_BUILD_JOBS:-}"
 DRY_RUN=0
 CHECK_DEPS=0
 FORCE_HOST=0
+ARCHIVE_SOURCE=0
 
 usage() {
   cat <<'EOF'
@@ -34,6 +40,7 @@ Spark and installs it into OmniInfer's local runtime tree.
 
 Options:
   --from-source       accepted for the source installer; ds4 is source-only
+  --archive-source    skip framework/ds4 and use the SHA256-pinned source archive
   --jobs <n>          parallel make jobs (default: half of the CPU cores)
   --check-deps        report build dependencies without installing
   --dry-run           print the planned build without changing files
@@ -54,6 +61,10 @@ EOF
 while (($# > 0)); do
   case "$1" in
     --from-source) shift ;;
+    --archive-source)
+      ARCHIVE_SOURCE=1
+      shift
+      ;;
     --jobs)
       JOBS="${2:?missing value for --jobs}"
       shift 2
@@ -144,10 +155,55 @@ if [[ -z "${JOBS}" ]]; then
   JOBS=$(( cores > 2 ? cores / 2 : 1 ))
 fi
 
+submodule_at_pinned_commit() {
+  [[ -f "${DS4_SUBMODULE}/VERSION" ]] \
+    && [[ "$(git -C "${DS4_SUBMODULE}" rev-parse HEAD 2>/dev/null)" == "${DS4_COMMIT}" ]]
+}
+
+is_git_checkout() {
+  command -v git >/dev/null 2>&1 && git -C "${REPO_ROOT}" rev-parse --git-dir >/dev/null 2>&1 \
+    && git -C "${REPO_ROOT}" config -f .gitmodules --get submodule.framework/ds4.path >/dev/null 2>&1
+}
+
+# Prints "submodule" or "archive". Initialises the submodule when it is missing,
+# bounded by a timeout so blocked GitHub git transport falls back to the archive.
+select_source() {
+  if [[ ${ARCHIVE_SOURCE} -eq 1 ]]; then
+    echo archive
+    return
+  fi
+  if submodule_at_pinned_commit; then
+    echo submodule
+    return
+  fi
+  if [[ -f "${DS4_SUBMODULE}/VERSION" ]]; then
+    echo "framework/ds4 is not at the pinned commit ${DS4_COMMIT}; run 'git submodule update framework/ds4' or pass --archive-source." >&2
+    return 1
+  fi
+  if ! is_git_checkout; then
+    echo archive
+    return
+  fi
+  if [[ ${DRY_RUN} -eq 1 ]]; then
+    echo submodule
+    return
+  fi
+  echo "framework/ds4 is missing; initialising the pinned submodule (timeout ${SUBMODULE_FETCH_TIMEOUT}s)..." >&2
+  if timeout "${SUBMODULE_FETCH_TIMEOUT}" git -C "${REPO_ROOT}" submodule update --init --depth 1 framework/ds4 >&2 \
+      && submodule_at_pinned_commit; then
+    echo submodule
+  else
+    echo "Could not initialise framework/ds4; using the SHA256-pinned source archive instead." >&2
+    echo archive
+  fi
+}
+
 if [[ ${DRY_RUN} -eq 1 ]]; then
+  source_kind="$(select_source)"
   cat <<EOF
 ds4 Linux CUDA (DGX Spark) build plan
-  source: ${DS4_REPO} ${DS4_VERSION} (${DS4_COMMIT})
+  source: ${DS4_REPO} ${DS4_VERSION} (${DS4_COMMIT}) from ${source_kind}
+  submodule: ${DS4_SUBMODULE}
   archive: ${DS4_ARCHIVE_URL}
   archive sha256: ${DS4_ARCHIVE_SHA256}
   target: make cuda-spark (sm_121a)
@@ -164,10 +220,16 @@ if ! deps_report="$(check_deps)"; then
   exit 1
 fi
 
-mkdir -p "${CACHE_ROOT}" "${VERSIONS_ROOT}" "${LOG_ROOT}"
+mkdir -p "${VERSIONS_ROOT}" "${LOG_ROOT}"
 
-archive="${CACHE_ROOT}/ds4-${DS4_COMMIT}.tar.gz"
-if [[ ! -f "${archive}" ]] || ! printf '%s  %s\n' "${DS4_ARCHIVE_SHA256}" "${archive}" | sha256sum -c - >/dev/null 2>&1; then
+source_kind="$(select_source)"
+
+fetch_archive() {
+  mkdir -p "${CACHE_ROOT}"
+  archive="${CACHE_ROOT}/ds4-${DS4_COMMIT}.tar.gz"
+  if [[ -f "${archive}" ]] && printf '%s  %s\n' "${DS4_ARCHIVE_SHA256}" "${archive}" | sha256sum -c - >/dev/null 2>&1; then
+    return
+  fi
   rm -f "${archive}"
   curl -fL --retry 5 --retry-delay 3 --connect-timeout 20 -o "${archive}.part" "${DS4_ARCHIVE_URL}"
   if ! printf '%s  %s\n' "${DS4_ARCHIVE_SHA256}" "${archive}.part" | sha256sum -c - >/dev/null; then
@@ -176,15 +238,21 @@ if [[ ! -f "${archive}" ]] || ! printf '%s  %s\n' "${DS4_ARCHIVE_SHA256}" "${arc
     exit 1
   fi
   mv "${archive}.part" "${archive}"
-fi
+}
+[[ "${source_kind}" == "archive" ]] && fetch_archive
 
 install_id="${DS4_VERSION}-$(date -u +%Y%m%dT%H%M%SZ)-$$"
 candidate="${VERSIONS_ROOT}/${install_id}"
 build_dir="${candidate}.build"
 trap 'rm -rf "${candidate:-}" "${build_dir:-}" "${ACTIVE_ROOT}.new.$$"' EXIT
 mkdir -p "${build_dir}" "${candidate}/bin" "${candidate}/logs"
-tar -xzf "${archive}" --strip-components=1 -C "${build_dir}"
-# The tarball has no .git; ds4 stamps its version from the committed VERSION file.
+# Build from an exported copy so the submodule working tree stays clean. Neither
+# copy carries .git, so ds4 stamps its version from the committed VERSION file.
+if [[ "${source_kind}" == "submodule" ]]; then
+  git -C "${DS4_SUBMODULE}" archive --format=tar "${DS4_COMMIT}" | tar -xf - -C "${build_dir}"
+else
+  tar -xzf "${archive}" --strip-components=1 -C "${build_dir}"
+fi
 expected_version="${DS4_VERSION#v}"
 if [[ "$(cat "${build_dir}/VERSION" 2>/dev/null)" != "${expected_version}" ]]; then
   echo "ds4 source archive does not report VERSION ${expected_version}." >&2
@@ -192,7 +260,7 @@ if [[ "$(cat "${build_dir}/VERSION" 2>/dev/null)" != "${expected_version}" ]]; t
 fi
 
 build_log="${LOG_ROOT}/build-${install_id}.log"
-echo "Building ds4 ${DS4_VERSION} (make cuda-spark, ${JOBS} jobs); log: ${build_log}"
+echo "Building ds4 ${DS4_VERSION} from ${source_kind} (make cuda-spark, ${JOBS} jobs); log: ${build_log}"
 # ds4 stamps its version with `git describe`; the build tree sits inside the
 # OmniInfer checkout, so stop git discovery at the build directory and let the
 # Makefile fall back to the archive's VERSION file.
@@ -235,6 +303,7 @@ cat >"${candidate}/install-manifest.json" <<EOF
   "source_repository": "https://github.com/${DS4_REPO}",
   "source_version": "${DS4_VERSION}",
   "source_commit": "${DS4_COMMIT}",
+  "source_kind": "${source_kind}",
   "source_archive_sha256": "${DS4_ARCHIVE_SHA256}",
   "make_target": "cuda-spark",
   "sass_architectures": "$(printf '%s' "${sass_archs}" | sed 's/ *$//')",
