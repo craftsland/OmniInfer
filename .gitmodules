@@ -40,3 +40,6 @@
 [submodule "framework/stable-diffusion.cpp"]
 	path = framework/stable-diffusion.cpp
 	url = https://github.com/leejet/stable-diffusion.cpp.git
+[submodule "framework/ds4"]
+	path = framework/ds4
+	url = https://github.com/Entrpi/ds4.git

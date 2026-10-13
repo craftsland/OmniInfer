@@ -193,6 +193,12 @@ Examples:
 - macOS: `llama.cpp-metal`, `llama.cpp-cpu`, `turboquant-metal`, or `mlx-metal`
 - Windows: `llama.cpp-cpu`, `llama.cpp-cuda`, `llama.cpp-vulkan`, `stable-diffusion.cpp-vulkan`, `llama.cpp-cpu-arm64`, `llama.cpp-sycl`, `llama.cpp-hip`, or managed `vllm-wsl2-cuda` / `vllm-wsl2-rocm`
 
+On DGX Spark, `./omniinfer build ds4-cuda --from-source` builds the pinned
+`framework/ds4` submodule (v0.6.5). If missing, the installer attempts to initialize
+it with a 180-second timeout, then falls back to the SHA-256-verified source
+archive of the same commit. To select the archive explicitly, run
+`./omniinfer build ds4-cuda --from-source -- --archive-source`.
+
 When you select a desktop backend, OmniInfer also creates a backend-specific JSON config template under:
 
 - `.local/config/backend_profiles/<backend>.json`
