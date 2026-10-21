@@ -74,11 +74,14 @@ Initialize only this framework from the repository root on Linux, macOS, or Wind
 
 ```bash
 git submodule update --init --recursive --depth 1 framework/ComfyUI
+git -C framework/ComfyUI fetch --depth 1 origin tag v0.42.1
 git -C framework/ComfyUI describe --tags --exact-match
 git -C framework/ComfyUI rev-parse HEAD
 ```
 
-The last two commands should print the tag and commit above. Normal submodule
+Fetching the named tag makes verification work even when a shallow initialization
+downloads only the pinned commit. The last two commands should print the tag and
+commit above. Normal submodule
 updates restore the commit recorded by OmniInfer. When upgrading ComfyUI,
 select a stable upstream release, validate it, and commit the new gitlink and
 this version reference together; avoid `git submodule update --remote` during setup.
