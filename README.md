@@ -134,7 +134,7 @@ Runtime availability depends on the device and accelerator. Use `omniinfer backe
 
 ### Build and embed
 
-- [Build Guide](docs/build.md): Source checkout, backend builds, and platform packaging
+- [Build Guide](docs/build.md): Source checkout, pinned ComfyUI source, backend builds, and platform packaging
 - [Android Integration](docs/android/integration.md): Embed OmniInfer in an Android application
 - [Android Backend Reference](docs/android/backends.md): Android runtime choices and requirements
 - [Android Smoke Tests](docs/android/smoke-tests.md) and [Troubleshooting](docs/android/troubleshooting.md)

@@ -43,3 +43,6 @@
 [submodule "framework/ds4"]
 	path = framework/ds4
 	url = https://github.com/Entrpi/ds4.git
+[submodule "framework/ComfyUI"]
+	path = framework/ComfyUI
+	url = https://github.com/Comfy-Org/ComfyUI.git

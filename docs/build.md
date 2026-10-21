@@ -42,9 +42,10 @@ Additional framework notes:
 - `framework/vllm` pins the upstream vLLM source release used for provenance and future source-build work
 - `framework/vla.cpp` is required for `vla.cpp-linux` and `vla.cpp-linux-cuda` source builds
 - `framework/stable-diffusion.cpp` is required for the Linux and Windows Vulkan diffusion backends
+- `framework/ComfyUI` pins the official ComfyUI source for workflow development; see [ComfyUI source submodule](#comfyui-source-submodule)
 - `vllm-linux-cuda` installs vLLM Python wheels into an OmniInfer-managed local venv by default, which matches vLLM's normal binary distribution path
 - `freetoken-linux-cuda` installs verified FreeToken release wheels into a versioned OmniInfer-managed environment; it does not add a source submodule
-- `ds4-linux-cuda` builds a SHA256-pinned Entrpi/ds4 source archive; it does not add a source submodule, so automated submodule updates cannot move it to an unvalidated release
+- `ds4-linux-cuda` builds the pinned `framework/ds4` submodule (v0.6.5)
 - Windows `vllm-wsl2-cuda` and `vllm-wsl2-rocm` install pinned official Linux wheels into OmniInfer-managed WSL2 venvs; upstream vLLM has no native Windows runtime
 
 Submodule behavior:
@@ -62,6 +63,35 @@ Example:
 ```bash
 git submodule update --init --recursive framework/llama.cpp
 ```
+
+### ComfyUI source submodule
+
+The official [Comfy-Org/ComfyUI](https://github.com/Comfy-Org/ComfyUI) source is
+available at `framework/ComfyUI`, pinned to stable release `v0.42.1`, commit
+`63be2f9b82ad0dac88a7ceaa28a9cf3154125a18`.
+
+Initialize only this framework from the repository root on Linux, macOS, or Windows:
+
+```bash
+git submodule update --init --recursive --depth 1 framework/ComfyUI
+git -C framework/ComfyUI describe --tags --exact-match
+git -C framework/ComfyUI rev-parse HEAD
+```
+
+The last two commands should print the tag and commit above. Normal submodule
+updates restore the commit recorded by OmniInfer. When upgrading ComfyUI,
+select a stable upstream release, validate it, and commit the new gitlink and
+this version reference together; avoid `git submodule update --remote` during setup.
+
+Follow the [pinned upstream installation guide](https://github.com/Comfy-Org/ComfyUI/tree/v0.42.1#installing)
+for a separate Python environment, accelerator-specific PyTorch, models, and
+custom nodes. Submodule initialization downloads source only. ComfyUI retains
+its upstream [GPL-3.0 license](https://github.com/Comfy-Org/ComfyUI/blob/v0.42.1/LICENSE).
+
+This is source-checkout support. ComfyUI is not yet an OmniInfer-managed backend:
+`backend install`, `model load`, and the gateway do not install, launch, or route
+ComfyUI workflows. CLI-only Release archives contain no ComfyUI runtime, Python
+environment, custom nodes, or models.
 
 ## Prebuilt Runtime Installs
 

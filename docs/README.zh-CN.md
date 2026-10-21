@@ -132,7 +132,7 @@ OmniInfer 随处可运行：
 
 ### 构建与嵌入
 
-- [构建指南](build.md)：源码检出、后端构建与平台打包
+- [构建指南](build.md)：源码检出、固定版本的 ComfyUI 源码、后端构建与平台打包
 - [Android 集成](android/integration.md)：在 Android 应用中嵌入 OmniInfer
 - [Android 后端参考](android/backends.md)：Android 运行时选择与要求
 - [Android 冒烟测试](android/smoke-tests.md)与[故障排查](android/troubleshooting.md)
